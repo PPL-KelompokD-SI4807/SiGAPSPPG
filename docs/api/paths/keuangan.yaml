@@ -1,0 +1,321 @@
+/keuangan/ringkasan:
+  get:
+    tags: [Keuangan]
+    summary: Ringkasan anggaran per periode (Gambar 16)
+    description: |
+      Hak R (akuntan, kepala_sppg, admin). Admin wajib `sppg_id`. Periode default = bulan berjalan (WIB).
+      anggaran = total pencairan periode; terpakai = total pengeluaran bertanggal di bulan periode;
+      sisa = anggaran - terpakai; persen = terpakai/anggaran*100. Status: aman (<80%), peringatan (>=80%),
+      habis (=100%), melampaui (>100% atau pengeluaran tanpa pencairan), belum_ada_anggaran.
+    parameters:
+      - { name: periode, in: query, schema: { type: string, pattern: '^\d{4}-(0[1-9]|1[0-2])$', examples: ['2026-11'] } }
+      - { name: sppg_id, in: query, description: 'Wajib untuk Admin.', schema: { type: integer } }
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data: { $ref: '#/components/schemas/RingkasanKeuangan' }
+            example:
+              data:
+                sppg_id: 1
+                periode: '2026-11'
+                anggaran: 100000000
+                terpakai: 40000000
+                sisa: 60000000
+                persen: 40
+                status: aman
+                jumlah_pencairan: 1
+                jumlah_pengeluaran: 2
+                jumlah_melebihi_anggaran: 0
+                per_kategori:
+                  - { kategori: bahan_baku, label: Belanja Bahan, nominal: 30000000, jumlah: 1, persen: 75 }
+                  - { kategori: energi, label: 'Energi (Gas/Listrik/Air)', nominal: 10000000, jumlah: 1, persen: 25 }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '404': { $ref: '#/components/responses/NotFound' }
+      '422': { $ref: '#/components/responses/ValidationFailed' }
+/keuangan/pencairan:
+  get:
+    tags: [Keuangan]
+    summary: Daftar pencairan dana
+    description: |
+      Hak R: akuntan, kepala_sppg, admin lintas SPPG, **investor** (SPPG aktif via `X-SPPG-Id`, hanya baca + keputusan).
+      Peran lain 403. Setiap baris memuat `status_persetujuan` dan `versi`; detail memuat `riwayat_persetujuan`.
+    parameters:
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PerPage'
+      - $ref: '#/components/parameters/Search'
+      - $ref: '#/components/parameters/DateFrom'
+      - $ref: '#/components/parameters/DateTo'
+      - { name: periode, in: query, schema: { type: string, examples: ['2026-11'] } }
+      - { name: sppg_id, in: query, description: 'Hanya Admin.', schema: { type: integer } }
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Paginated'
+                - properties:
+                    data:
+                      type: array
+                      items: { $ref: '#/components/schemas/PencairanDana' }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '422': { $ref: '#/components/responses/ValidationFailed' }
+  post:
+    tags: [Keuangan]
+    summary: Catat pencairan dana
+    description: |
+      Hak C: akuntan (SPPG sendiri). Nominal rupiah bulat > 0. Bukti transfer opsional (multipart `bukti`).
+      Pencairan baru menaikkan anggaran periode; penanda peringatan 80%/100% yang tidak lagi berlaku
+      dipersenjatai ulang sehingga dapat memicu peringatan lagi.
+    parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PencairanDanaInput' }
+        multipart/form-data:
+          schema: { $ref: '#/components/schemas/PencairanDanaInput' }
+    responses:
+      '201':
+        description: Dibuat
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data: { $ref: '#/components/schemas/PencairanDana' }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '409': { $ref: '#/components/responses/Conflict' }
+      '422': { $ref: '#/components/responses/UploadRejected' }
+      '429': { $ref: '#/components/responses/TooManyRequests' }
+/keuangan/pencairan/{id}:
+  get:
+    tags: [Keuangan]
+    summary: Detail pencairan dana
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data: { $ref: '#/components/schemas/PencairanDana' }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '404': { $ref: '#/components/responses/NotFound' }
+  put:
+    tags: [Keuangan]
+    summary: Ubah pencairan dana (akuntan)
+    description: |
+      Field opsional. Ganti bukti: multipart POST dengan `_method=PUT`. PATCH = alias.
+      Perubahan nominal/periode menghitung ulang ambang kedua periode.
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PencairanDanaInput' }
+        multipart/form-data:
+          schema: { $ref: '#/components/schemas/PencairanDanaInput' }
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data: { $ref: '#/components/schemas/PencairanDana' }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '404': { $ref: '#/components/responses/NotFound' }
+      '422': { $ref: '#/components/responses/UploadRejected' }
+      '429': { $ref: '#/components/responses/TooManyRequests' }
+  delete:
+    tags: [Keuangan]
+    summary: Hapus lunak pencairan dana (akuntan)
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    responses:
+      '204': { description: Dihapus (soft delete + audit) }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '404': { $ref: '#/components/responses/NotFound' }
+/keuangan/pengeluaran:
+  get:
+    tags: [Keuangan]
+    summary: Daftar pengeluaran operasional
+    description: Hak R (akuntan, kepala_sppg, admin lintas SPPG). Peran lain 403.
+    parameters:
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/PerPage'
+      - $ref: '#/components/parameters/Search'
+      - $ref: '#/components/parameters/DateFrom'
+      - $ref: '#/components/parameters/DateTo'
+      - { name: periode, in: query, description: 'Bulan tanggal pengeluaran.', schema: { type: string, examples: ['2026-11'] } }
+      - { name: kategori, in: query, schema: { $ref: '#/components/schemas/KategoriPengeluaran' } }
+      - { name: pemasok_id, in: query, schema: { type: integer } }
+      - { name: pencairan_dana_id, in: query, schema: { type: integer } }
+      - { name: melebihi_anggaran, in: query, schema: { type: boolean } }
+      - { name: status_persetujuan, in: query, description: 'Status persetujuan investor (R-06b-2).', schema: { $ref: '#/components/schemas/StatusPersetujuanPengeluaran' } }
+      - { name: sppg_id, in: query, description: 'Hanya Admin.', schema: { type: integer } }
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Paginated'
+                - properties:
+                    data:
+                      type: array
+                      items: { $ref: '#/components/schemas/Pengeluaran' }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '422': { $ref: '#/components/responses/ValidationFailed' }
+  post:
+    tags: [Keuangan]
+    summary: Catat pengeluaran operasional
+    description: |
+      Hak C: akuntan. Nominal rupiah bulat > 0; nota opsional (multipart `nota`, SecureUploadService).
+      R-06b-2: SEMUA pengeluaran yang dicatat langsung akuntan (kategori apa pun, termasuk `bahan_baku`) wajib disetujui
+      investor bila `nominal >= ambang` (`SIGAP_AMBANG_PERSETUJUAN_PENGELUARAN`, bawaan 0 = semua): status awal
+      `diajukan` + baris pengajuan + notifikasi bot ke investor (tanpa `uraian`). Di bawah ambang -> langsung `disetujui`.
+      Hanya pengeluaran `disetujui` dihitung ke `terpakai`/rekap; pengecekan `melebihi_anggaran` dan event ambang 80/100%
+      dijalankan SAAT disetujui (keputusan investor), bukan saat dicatat. Belanja bahan untuk menu masuk lewat Pembelian Bahan.
+      Keputusan FR-09: pengeluaran yang melebihi sisa anggaran periode tetap DICATAT dan ditandai
+      `melebihi_anggaran=true` (config `operasional.keuangan.tolak_melebihi_anggaran=true` -> 422).
+      Event sekali per (SPPG, periode): `AnggaranMencapai80` (>=80%), `AnggaranMencapai100` (>=100%),
+      `AnggaranMelampaui` (>100%); payload {sppg_id, periode, ambang, anggaran, terpakai, sisa, persen}.
+      Ditulis atomik (kunci baris SPPG) sehingga kiriman bersamaan tidak menggandakan event.
+    parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PengeluaranInput' }
+        multipart/form-data:
+          schema: { $ref: '#/components/schemas/PengeluaranInput' }
+    responses:
+      '201':
+        description: Dibuat
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data: { $ref: '#/components/schemas/Pengeluaran' }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '409': { $ref: '#/components/responses/Conflict' }
+      '422': { $ref: '#/components/responses/UploadRejected' }
+      '429': { $ref: '#/components/responses/TooManyRequests' }
+/keuangan/pengeluaran/{id}:
+  get:
+    tags: [Keuangan]
+    summary: Detail pengeluaran operasional
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data: { $ref: '#/components/schemas/Pengeluaran' }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '404': { $ref: '#/components/responses/NotFound' }
+  put:
+    tags: [Keuangan]
+    summary: Ubah pengeluaran operasional (akuntan)
+    description: |
+      Field opsional KECUALI `versi` (WAJIB, kunci optimistik; beda -> 409 `versi_tidak_cocok` + `versi_server`).
+      Ganti nota: multipart POST dengan `_method=PUT`. PATCH = alias. Perubahan apa pun menaikkan `versi`, mengembalikan
+      status ke `diajukan`, membatalkan pengajuan yang masih menunggu, dan membuat pengajuan baru (investor diberi tahu).
+      Pengeluaran hasil pembelian bahan -> 409 `pengeluaran_dari_pembelian`. Perubahan tercatat di audit_logs tanpa teks bebas.
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/PengeluaranInput' }
+        multipart/form-data:
+          schema: { $ref: '#/components/schemas/PengeluaranInput' }
+    responses:
+      '200':
+        description: OK
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data: { $ref: '#/components/schemas/Pengeluaran' }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '404': { $ref: '#/components/responses/NotFound' }
+      '409': { $ref: '#/components/responses/KonflikVersi' }
+      '422': { $ref: '#/components/responses/UploadRejected' }
+      '429': { $ref: '#/components/responses/TooManyRequests' }
+  delete:
+    tags: [Keuangan]
+    summary: Hapus lunak pengeluaran operasional (akuntan)
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+    responses:
+      '204': { description: Dihapus (soft delete + audit) }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '404': { $ref: '#/components/responses/NotFound' }
+/keuangan/pengeluaran/{id}/keputusan:
+  parameters:
+    - { name: id, in: path, required: true, schema: { type: integer } }
+  post:
+    tags: [Keuangan]
+    summary: Putuskan pengajuan pengeluaran (investor)
+    description: |
+      Hanya Investor pemilik SPPG pengeluaran (pivot + `X-SPPG-Id`); admin, kepala, akuntan, dan peran lain -> 403;
+      pengeluaran SPPG lain -> 404. Satu-satunya tulis investor selain keputusan menu. `disetujui`: pengeluaran
+      dihitung ke anggaran (`melebihi_anggaran` dihitung, event 80/100% dievaluasi; 422 `nominal` bila
+      `tolak_melebihi_anggaran=true`). `ditolak`: `catatan` wajib (5..500). Tidak ada `perlu_revisi`: akuntan
+      memperbaiki lewat PATCH (otomatis diajukan ulang). 409 `status_tidak_valid` (sudah diputuskan / investor kedua /
+      pengajuan dibatalkan) atau `versi_tidak_cocok` (+ `versi_server`). Kunci baris: sppgs -> pengeluarans -> persetujuan.
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/KeputusanPengeluaranInput' }
+          example: { keputusan: ditolak, catatan: 'Tunda sampai bulan depan.', versi: 1 }
+    responses:
+      '200':
+        description: Diputuskan
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                data: { $ref: '#/components/schemas/Pengeluaran' }
+      '401': { $ref: '#/components/responses/Unauthorized' }
+      '403': { $ref: '#/components/responses/Forbidden' }
+      '404': { $ref: '#/components/responses/NotFound' }
+      '409': { $ref: '#/components/responses/KonflikVersi' }
+      '422': { $ref: '#/components/responses/ValidationFailed' }

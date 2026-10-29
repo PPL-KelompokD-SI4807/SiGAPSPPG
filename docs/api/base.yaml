@@ -1,0 +1,29 @@
+openapi: 3.1.0
+info:
+  title: SiGAP SPPG API
+  version: 1.0.0
+  description: |
+    REST API backend SiGAP SPPG untuk Telegram Mini App.
+    Autentikasi dua lapis (R-03): (1) setiap Mini App dibuka, POST /auth/telegram memvalidasi
+    initData dan memberi token pra-login (atau `sesi_aktif`); (2) POST /auth/masuk dengan
+    username/no telepon + password (+ token 6 digit dari bot untuk perangkat baru, aktivasi, reset)
+    menghasilkan token login penuh (ability auth:penuh, tanpa kedaluwarsa). Kirim header
+    `Authorization: Bearer <token>`.
+    Otorisasi mengikuti matriks CRUD Tabel 5 (config/rbac.php) dan dibatasi SPPG pengguna
+    (kecuali Admin). Galat selalu berbentuk `{message, errors?}`.
+    SPPG aktif (R-06a): header opsional `X-SPPG-Id` divalidasi di setiap rute login penuh.
+    Investor (baca saja, banyak SPPG) wajib mengirimnya bila memiliki >1 SPPG (pilih dari
+    GET /sppg-saya); tanpa header -> 409 `alasan: sppg_aktif_belum_dipilih`. Header berisi SPPG yang
+    tidak boleh diakses -> 403 `alasan: sppg_aktif_ditolak` (juga untuk peran lain bila berbeda dari
+    SPPG sendiri). Admin: header diabaikan. Lihat components/schemas/SppgAktifError.
+    BERKAS INI DIHASILKAN oleh docs/api/build-openapi.php — jangan diedit langsung.
+servers:
+  - url: /api/v1
+    description: Relatif terhadap domain aplikasi
+  - url: http://localhost:8080/api/v1
+    description: Docker Compose lokal
+security:
+  - bearerAuth: []
+tags:
+  - name: Auth
+    description: Login Telegram (initData) dan sesi token

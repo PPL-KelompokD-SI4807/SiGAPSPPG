@@ -1,0 +1,26 @@
+.env
+.env.*
+!.env.example
+/vendor
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+*.log
+*.pem
+*.key
+.phpunit.cache
+.phpunit.result.cache
+.idea
+.vscode
+.DS_Store
+database/*.sqlite
+/public/miniapp
+
+# Operasi deploy (R-01): status deploy dan artefak cadangan tidak pernah di-commit
+/.deploy/
+*.age
+*.sql
+*.sql.gz
